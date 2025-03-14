@@ -1,12 +1,73 @@
-# React + Vite
+#  **Scheduling Algorithms – A Visual Approach**
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Efficient CPU scheduling is essential for seamless multitasking, ensuring optimal CPU utilization by determining which process runs and when. This project, offers an **interactive and dynamic** visualization of various scheduling algorithms to enhance comprehension of execution order, waiting time, and turnaround time.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🎯 **Why CPU Scheduling?**
+CPU scheduling plays a vital role in **maximizing system efficiency and resource utilization**. Different scheduling algorithms impact key performance metrics:
+- ⏳ **Waiting Time** – The duration a process remains in the queue before execution.
+- ⌛ **Turnaround Time** – The total time from process arrival to its completion.
+- ⚡ **Response Time** – The time taken for the first execution after arrival.
 
-## Expanding the ESLint configuration
+Optimized scheduling ensures fair CPU distribution, improves system throughput, and minimizes delays.
 
-If you are developing a production application, we recommend using TypeScript and enable type-aware lint rules. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+---
+
+## 📌 **Implemented Scheduling Algorithms**
+- 🏁 **First Come First Serve (FCFS)** – A **non-preemptive** strategy where processes execute in arrival order.
+- ⏱ **Shortest Job First (SJF)** – Prioritizes processes with the **shortest burst time** to improve efficiency.
+- 🔄 **Round Robin (RR)** – **Time-sliced execution** ensures fairness among processes.
+- 🎖 **Priority Scheduling** – Executes processes based on **priority levels** rather than arrival time.
+
+---
+
+## 🎨 **Visualizing CPU Scheduling**
+This project provides **📊 Gantt Chart-based real-time visualization**, enabling an intuitive understanding of process execution and CPU allocation.
+
+### 📥 **Example: FCFS Algorithm Execution**
+
+**📝 Input:** 
+![image](https://github.com/user-attachments/assets/0ec9d846-96f5-4565-be7d-0f1fd7b29b76)
+
+**🔍 Visualization Process:** 
+![image](https://github.com/user-attachments/assets/45ac42d7-61e2-4d06-839d-5e40ed9c5baf)
+
+**📈 Gantt Chart Representation:** 
+![image](https://github.com/user-attachments/assets/d25843ab-0d43-4dfd-aab5-781e453f7e68)
+
+**📤 Output:** 
+![image](https://github.com/user-attachments/assets/79384484-f0a4-4389-8205-7e06945e844c)
+
+---
+
+## ⚡ **Installation & Execution**
+### 🛠 **Setup Instructions**
+1. **📌 Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/scheduling-algo.git  
+   cd scheduling-algo  
+   ```
+2. **▶️ Run the visualization module:**
+   ```bash
+   npm run dev
+   ```
+3. **📑 Select a scheduling algorithm from the menu.**
+4. **📊 Observe execution order and Gantt Chart visualization.**
+
+---
+
+## 🤝 **Contributing to the Project**
+### 🌟 **How to Contribute?**
+- 🔄 **Fork the repository.**
+- 🌿 **Create a new branch:**
+  ```bash
+  git checkout -b feature-name  
+  ```  
+- 💾 **Commit your changes:**
+  ```bash
+  git commit -m "Added Gantt chart animation"  
+  ```  
+- 🔗 **Submit a pull request.**
+
+📩 **Project Owner:** _CODE__KRATOS_  
