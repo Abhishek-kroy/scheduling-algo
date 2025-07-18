@@ -6,6 +6,11 @@ const processColors = {
   P3: "#3357FF",
   P4: "#FF33A8",
   P5: "#33FFF9",
+  P6: "#FFD700",
+  P7: "#FF69B4",
+  P8: "#00CED1",
+  P9: "#FF4500",
+  P10: "#9370DB",
   // Add more process colors as needed
 };
 
@@ -18,14 +23,52 @@ const FCFS = ({ processes }) => {
   const [fadeOutProcess, setFadeOutProcess] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [animationSpeed, setAnimationSpeed] = useState(1);
   const [animatingTimeJump, setAnimatingTimeJump] = useState(false);
   const [timeJumpTarget, setTimeJumpTarget] = useState(0);
+  const [simulationState, setSimulationState] = useState({
+    initialized: false,
+    executingProcess: null,
+    processStartTime: null,
+    processEndTime: null,
+    executionProgress: 0
+  });
 
   // Initialize simulation
   const startSimulation = () => {
-    // No sorting - just use processes as they are
-    setPendingProcesses([...processes]);
+    if (!simulationState.initialized) {
+      // Fresh start
+      setPendingProcesses([...processes]);
+      setCompletedProcesses([]);
+      setGanttChart([]);
+      setCurrentProcess(null);
+      setComparingProcess(null);
+      setFadeOutProcess(null);
+      setCurrentTime(0);
+      setAnimatingTimeJump(false);
+      setTimeJumpTarget(0);
+      setSimulationState({
+        initialized: true,
+        executingProcess: null,
+        processStartTime: null,
+        processEndTime: null,
+        executionProgress: 0
+      });
+    }
+    setIsSimulating(true);
+    setIsPaused(false);
+  };
+
+  // Stop simulation
+  const stopSimulation = () => {
+    setIsSimulating(false);
+    setIsPaused(true);
+  };
+
+  // Reset simulation
+  const resetSimulation = () => {
+    setPendingProcesses([]);
     setCompletedProcesses([]);
     setGanttChart([]);
     setCurrentProcess(null);
@@ -34,8 +77,36 @@ const FCFS = ({ processes }) => {
     setCurrentTime(0);
     setAnimatingTimeJump(false);
     setTimeJumpTarget(0);
-    setIsSimulating(true);
+    setIsSimulating(false);
+    setIsPaused(false);
+    setSimulationState({
+      initialized: false,
+      executingProcess: null,
+      processStartTime: null,
+      processEndTime: null,
+      executionProgress: 0
+    });
   };
+
+  // Add new processes during simulation
+  const addNewProcesses = (newProcesses) => {
+  const filteredNewProcesses = newProcesses.filter(newProcess => 
+    newProcess.arrivalTime >= currentTime &&
+    !pendingProcesses.some(p => p.name === newProcess.name) &&
+    !completedProcesses.some(p => p.name === newProcess.name)
+  );
+
+  if (filteredNewProcesses.length > 0) {
+    setPendingProcesses(prev => [...prev, ...filteredNewProcesses]);
+  }
+};
+
+  // Update pending processes when new processes are added
+  useEffect(() => {
+    if (simulationState.initialized && processes.length > 0) {
+      addNewProcesses(processes);
+    }
+  }, [processes, simulationState.initialized]);
 
   // Calculate delay based on animation speed
   const getAnimationDelay = (baseDelay) => {
@@ -44,10 +115,52 @@ const FCFS = ({ processes }) => {
 
   // Handle simulation steps
   useEffect(() => {
-    if (!isSimulating || pendingProcesses.length === 0) return;
+    if (!isSimulating || isPaused || pendingProcesses.length === 0) return;
     
     const simulationStep = async () => {
-      // Get processes that have arrived by the current time
+      // If we're in the middle of executing a process, continue from where we left off
+      if (simulationState.executingProcess) {
+        const process = simulationState.executingProcess;
+        const remainingTime = simulationState.processEndTime - currentTime;
+        
+        // Continue executing the current process
+        setAnimatingTimeJump(true);
+        setTimeJumpTarget(simulationState.processEndTime);
+        
+        const continueExecution = async () => {
+          for (let t = currentTime + 1; t <= simulationState.processEndTime; t++) {
+            if (!isSimulating || isPaused) break;
+            setCurrentTime(t);
+            await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
+          }
+          setAnimatingTimeJump(false);
+        };
+        
+        await continueExecution();
+        
+        if (isSimulating && !isPaused) {
+          // Process execution completed
+          setGanttChart(prev => [...prev, {
+            ...process,
+            startTime: simulationState.processStartTime,
+            endTime: simulationState.processEndTime
+          }]);
+          setCompletedProcesses(prev => [...prev, process]);
+          setPendingProcesses(prev => prev.filter(p => p.name !== process.name));
+          setCurrentProcess(null);
+          setFadeOutProcess(null);
+          setSimulationState(prev => ({
+            ...prev,
+            executingProcess: null,
+            processStartTime: null,
+            processEndTime: null,
+            executionProgress: 0
+          }));
+        }
+        return;
+      }
+      
+      // Normal process selection and execution
       const arrivedProcesses = pendingProcesses;
       
       // Initialize minProcess with the first process
@@ -59,6 +172,8 @@ const FCFS = ({ processes }) => {
       
       // Loop through all arrived processes to find the one with minimum arrival time
       for (let i = 1; i < arrivedProcesses.length; i++) {
+        if (!isSimulating || isPaused) break;
+        
         const processToCompare = arrivedProcesses[i];
         
         // Set the current process being compared in red
@@ -77,6 +192,8 @@ const FCFS = ({ processes }) => {
         }
       }
       
+      if (!isSimulating || isPaused) return;
+      
       // Clear comparison highlighting
       setComparingProcess(null);
       
@@ -93,13 +210,6 @@ const FCFS = ({ processes }) => {
       const startTime = Math.max(currentTime, parseInt(minProcess.arrivalTime));
       const endTime = startTime + parseInt(minProcess.burstTime);
       
-      // Add to Gantt chart with timing information
-      const processWithTiming = {
-        ...nextProcess,
-        startTime,
-        endTime
-      };
-      
       // Animate time jump if necessary
       if (startTime > currentTime) {
         // Show time jump animation
@@ -109,6 +219,7 @@ const FCFS = ({ processes }) => {
         // Animate the time increment
         const incrementTime = async () => {
           for (let t = currentTime + 1; t <= startTime; t++) {
+            if (!isSimulating || isPaused) break;
             setCurrentTime(t);
             await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
           }
@@ -118,12 +229,24 @@ const FCFS = ({ processes }) => {
         await incrementTime();
       }
       
+      if (!isSimulating || isPaused) return;
+      
+      // Store execution state for potential pause/resume
+      setSimulationState(prev => ({
+        ...prev,
+        executingProcess: nextProcess,
+        processStartTime: startTime,
+        processEndTime: endTime,
+        executionProgress: 0
+      }));
+      
       // Animate process execution
       setAnimatingTimeJump(true);
       setTimeJumpTarget(endTime);
       
       const executeProcess = async () => {
         for (let t = startTime + 1; t <= endTime; t++) {
+          if (!isSimulating || isPaused) break;
           setCurrentTime(t);
           await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
         }
@@ -132,41 +255,77 @@ const FCFS = ({ processes }) => {
       
       await executeProcess();
       
-      // Update states
-      setGanttChart(prev => [...prev, processWithTiming]);
+      if (!isSimulating || isPaused) return;
+      
+      // Update states after successful execution
+      setGanttChart(prev => [...prev, {
+        ...nextProcess,
+        startTime,
+        endTime
+      }]);
       setCompletedProcesses(prev => [...prev, nextProcess]);
       setPendingProcesses(prev => prev.filter(p => p.name !== nextProcess.name));
       setCurrentProcess(null);
       setFadeOutProcess(null);
+      setSimulationState(prev => ({
+        ...prev,
+        executingProcess: null,
+        processStartTime: null,
+        processEndTime: null,
+        executionProgress: 0
+      }));
     };
     
     const timer = setTimeout(simulationStep, getAnimationDelay(500));
     return () => clearTimeout(timer);
-  }, [pendingProcesses, currentTime, isSimulating, animationSpeed]);
+  }, [pendingProcesses, currentTime, isSimulating, isPaused, animationSpeed, simulationState]);
   
   // Calculate metrics when simulation ends
   useEffect(() => {
-    if (isSimulating && pendingProcesses.length === 0) {
+    if (isSimulating && pendingProcesses.length === 0 && !simulationState.executingProcess) {
       setIsSimulating(false);
+      setIsPaused(false);
     }
-  }, [pendingProcesses, isSimulating]);
+  }, [pendingProcesses, isSimulating, simulationState.executingProcess]);
 
   return (
     <div className="mt-10 mb-10 flex flex-col items-center p-6 bg-black rounded-lg border border-white text-white min-w-[80vw] mx-auto">
       <h2 className="text-2xl font-bold mb-6">FCFS Scheduling Visualization</h2>
 
       <div className="w-full flex justify-between items-center mb-8">
-        <button
-          onClick={startSimulation}
-          disabled={isSimulating}
-          className={`px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 ${
-            isSimulating 
-              ? "bg-gray-800 text-gray-400 cursor-not-allowed" 
-              : "bg-black text-white hover:bg-gray-900"
-          }`}
-        >
-          {isSimulating ? "Simulation in Progress..." : "Start FCFS Simulation"}
-        </button>
+        <div className="flex space-x-4">
+          <button
+            onClick={startSimulation}
+            disabled={isSimulating && !isPaused}
+            className={`px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 ${
+              isSimulating && !isPaused
+                ? "bg-gray-800 text-gray-400 cursor-not-allowed" 
+                : "bg-black text-white hover:bg-gray-900"
+            }`}
+          >
+            {isSimulating && !isPaused ? "Simulation Running..." : 
+             isPaused ? "Resume Simulation" : "Start FCFS Simulation"}
+          </button>
+          
+          <button
+            onClick={stopSimulation}
+            disabled={!isSimulating || isPaused}
+            className={`px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 ${
+              !isSimulating || isPaused
+                ? "bg-gray-800 text-gray-400 cursor-not-allowed" 
+                : "bg-orange-600 text-white hover:bg-orange-700"
+            }`}
+          >
+            Stop Simulation
+          </button>
+          
+          <button
+            onClick={resetSimulation}
+            className="px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 bg-red-600 text-white hover:bg-red-700"
+          >
+            Reset
+          </button>
+        </div>
         
         {/* Animation Speed Control */}
         <div className="flex items-center space-x-3">
@@ -177,7 +336,7 @@ const FCFS = ({ processes }) => {
               className={`px-3 py-1 rounded border transition-all duration-300 ${
                 animationSpeed === 0.5 ? "bg-white text-black" : "bg-black text-white"
               }`}
-              disabled={isSimulating && !animatingTimeJump}
+              disabled={isSimulating && !isPaused}
             >
               0.5x
             </button>
@@ -186,7 +345,7 @@ const FCFS = ({ processes }) => {
               className={`px-3 py-1 rounded border transition-all duration-300 ${
                 animationSpeed === 1 ? "bg-white text-black" : "bg-black text-white"
               }`}
-              disabled={isSimulating && !animatingTimeJump}
+              disabled={isSimulating && !isPaused}
             >
               1x
             </button>
@@ -195,13 +354,34 @@ const FCFS = ({ processes }) => {
               className={`px-3 py-1 rounded border transition-all duration-300 ${
                 animationSpeed === 2 ? "bg-white text-black" : "bg-black text-white"
               }`}
-              disabled={isSimulating && !animatingTimeJump}
+              disabled={isSimulating && !isPaused}
             >
               2x
             </button>
           </div>
         </div>
       </div>
+
+      {/* Simulation Status */}
+      {simulationState.initialized && (
+        <div className="w-full mb-4 text-center">
+          <div className="inline-block px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-600">
+            <span className="font-semibold">Status:</span> 
+            <span className={`ml-2 ${
+              isSimulating && !isPaused ? "text-green-400" : 
+              isPaused ? "text-orange-400" : "text-gray-400"
+            }`}>
+              {isSimulating && !isPaused ? "Running" : 
+               isPaused ? "Paused" : "Stopped"}
+            </span>
+            {simulationState.executingProcess && (
+              <span className="ml-4 text-blue-400">
+                Executing: {simulationState.executingProcess.name}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Current Time Display */}
       <div className="w-full mb-6 text-center">
@@ -222,7 +402,9 @@ const FCFS = ({ processes }) => {
       <div className="w-full flex flex-col gap-8 mb-8">
         {/* Pending Processes */}
         <div className="w-full bg-black p-4 rounded-lg border border-white">
-          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Pending Processes</h3>
+          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">
+            Pending Processes ({pendingProcesses.length})
+          </h3>
           <div className="flex flex-wrap gap-4 justify-center">
             {pendingProcesses.map((p) => (
               <div
@@ -247,7 +429,7 @@ const FCFS = ({ processes }) => {
                 </div>
               </div>
             ))}
-            {pendingProcesses.length === 0 && !isSimulating && (
+            {pendingProcesses.length === 0 && (
               <p className="text-gray-400 italic">No pending processes</p>
             )}
           </div>
@@ -255,7 +437,9 @@ const FCFS = ({ processes }) => {
 
         {/* Completed Processes */}
         <div className="w-full bg-black p-4 rounded-lg border border-white">
-          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Completed Processes</h3>
+          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">
+            Completed Processes ({completedProcesses.length})
+          </h3>
           <div className="flex flex-wrap gap-4 justify-center">
             {completedProcesses.map((p) => (
               <div
@@ -362,7 +546,7 @@ const FCFS = ({ processes }) => {
       </div>
 
       {/* Metrics Table (when simulation completes) */}
-      {completedProcesses.length > 0 && completedProcesses.length === processes.length && (
+      {completedProcesses.length > 0 && ganttChart.length > 0 && (
         <div className="w-full bg-black p-4 rounded-lg border border-white mt-8">
           <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Performance Metrics</h3>
           

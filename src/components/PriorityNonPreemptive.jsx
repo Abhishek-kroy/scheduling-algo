@@ -6,7 +6,11 @@ const processColors = {
   P3: "#3357FF",
   P4: "#FF33A8",
   P5: "#33FFF9",
-  // Add more process colors as needed
+  P6: "#FFD700",
+  P7: "#FF69B4",
+  P8: "#00CED1",
+  P9: "#FF4500",
+  P10: "#9370DB",
 };
 
 const PriorityNonPreemptive = ({ processes }) => {
@@ -18,21 +22,48 @@ const PriorityNonPreemptive = ({ processes }) => {
   const [fadeOutProcess, setFadeOutProcess] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [arrivedQueue, setArrivedQueue] = useState([]);
+  const [isPaused, setIsPaused] = useState(false);
+  const [animationSpeed, setAnimationSpeed] = useState(1);
   const [animatingTimeJump, setAnimatingTimeJump] = useState(false);
-  const [timeJumpTarget, setTimeJumpTarget] = useState(null);
-  const [highlightNewArrivals, setHighlightNewArrivals] = useState([]);
-  const [animationSpeed, setAnimationSpeed] = useState(1); // 1 = normal, 0.5 = slow, 2 = fast
+  const [timeJumpTarget, setTimeJumpTarget] = useState(0);
+  const [simulationState, setSimulationState] = useState({
+    initialized: false,
+    executingProcess: null,
+    processStartTime: null,
+    processEndTime: null,
+    executionProgress: 0
+  });
 
-  // Initialize simulation
   const startSimulation = () => {
-    // Initialize with processes sorted by arrival time
-    const sortedByArrival = [...processes].sort((a, b) => 
-      parseInt(a.arrivalTime) - parseInt(b.arrivalTime)
-    );
-    
-    setPendingProcesses(sortedByArrival);
-    setArrivedQueue([]);
+    if (!simulationState.initialized) {
+      setPendingProcesses([...processes]);
+      setCompletedProcesses([]);
+      setGanttChart([]);
+      setCurrentProcess(null);
+      setComparingProcess(null);
+      setFadeOutProcess(null);
+      setCurrentTime(0);
+      setAnimatingTimeJump(false);
+      setTimeJumpTarget(0);
+      setSimulationState({
+        initialized: true,
+        executingProcess: null,
+        processStartTime: null,
+        processEndTime: null,
+        executionProgress: 0
+      });
+    }
+    setIsSimulating(true);
+    setIsPaused(false);
+  };
+
+  const stopSimulation = () => {
+    setIsSimulating(false);
+    setIsPaused(true);
+  };
+
+  const resetSimulation = () => {
+    setPendingProcesses([]);
     setCompletedProcesses([]);
     setGanttChart([]);
     setCurrentProcess(null);
@@ -40,184 +71,247 @@ const PriorityNonPreemptive = ({ processes }) => {
     setFadeOutProcess(null);
     setCurrentTime(0);
     setAnimatingTimeJump(false);
-    setTimeJumpTarget(null);
-    setHighlightNewArrivals([]);
-    setIsSimulating(true);
+    setTimeJumpTarget(0);
+    setIsSimulating(false);
+    setIsPaused(false);
+    setSimulationState({
+      initialized: false,
+      executingProcess: null,
+      processStartTime: null,
+      processEndTime: null,
+      executionProgress: 0
+    });
   };
 
-  // Smoothly animate time changes
-  useEffect(() => {
-    if (!timeJumpTarget || !animatingTimeJump) return;
-  
-    const startTime = currentTime;
-    const endTime = timeJumpTarget;
-    const duration = 1000 / animationSpeed; // Animation duration based on speed
-    const startTimestamp = performance.now();
-  
-    const animateTimeChange = (timestamp) => {
-      const elapsed = timestamp - startTimestamp;
-      const progress = Math.min(elapsed / duration, 1);
-  
-      // Apply cubic ease-out for smoother animation
-      const easedProgress = 1 - Math.pow(1 - progress, 3);
-      
-      const newTime = Math.floor(startTime + (endTime - startTime) * easedProgress);
-  
-      if (newTime !== currentTime) {
-        setCurrentTime(newTime);
-      }
-  
-      if (progress < 1) {
-        requestAnimationFrame(animateTimeChange);
-      } else {
-        setCurrentTime(endTime);
-        setAnimatingTimeJump(false);
-        setTimeJumpTarget(null);
-      }
-    };
-  
-    requestAnimationFrame(animateTimeChange);
-  }, [timeJumpTarget, animatingTimeJump, animationSpeed, currentTime]);
-  
-
-  // Update arrived queue based on current time
-  useEffect(() => {
-    if (!isSimulating || animatingTimeJump) return;
-    
-    // Move processes from pending to arrived queue if they've arrived by current time
-    const newlyArrived = pendingProcesses.filter(
-      p => parseInt(p.arrivalTime) <= currentTime
+  const addNewProcesses = (newProcesses) => {
+    const filteredNewProcesses = newProcesses.filter(newProcess => 
+      newProcess.arrivalTime >= currentTime &&
+      !pendingProcesses.some(p => p.name === newProcess.name) &&
+      !completedProcesses.some(p => p.name === newProcess.name)
     );
-    
-    if (newlyArrived.length > 0) {
-      setPendingProcesses(prev => 
-        prev.filter(p => parseInt(p.arrivalTime) > currentTime)
-      );
-      
-      // Highlight newly arrived processes
-      setHighlightNewArrivals(newlyArrived.map(p => p.name));
-      
-      // Clear highlighting after animation
-      setTimeout(() => {
-        setHighlightNewArrivals([]);
-      }, 1500 / animationSpeed);
-      
-      setArrivedQueue(prev => [...prev, ...newlyArrived]);
-    }
-  }, [currentTime, pendingProcesses, isSimulating, animatingTimeJump, animationSpeed]);
 
-  // Handle simulation steps
-  useEffect(() => {
-    if (!isSimulating || animatingTimeJump || (pendingProcesses.length === 0 && arrivedQueue.length === 0 && !currentProcess)) {
-      if (isSimulating && pendingProcesses.length === 0 && arrivedQueue.length === 0 && !currentProcess) {
-        setIsSimulating(false);
-      }
-      return;
+    if (filteredNewProcesses.length > 0) {
+      setPendingProcesses(prev => [...prev, ...filteredNewProcesses]);
     }
+  };
+
+  useEffect(() => {
+    if (simulationState.initialized && processes.length > 0) {
+      addNewProcesses(processes);
+    }
+  }, [processes, simulationState.initialized]);
+
+  const getAnimationDelay = (baseDelay) => {
+    return baseDelay / animationSpeed;
+  };
+
+  useEffect(() => {
+    if (!isSimulating || isPaused || pendingProcesses.length === 0) return;
     
     const simulationStep = async () => {
-      // If no process is currently being executed and there are processes in the arrived queue
-      if (!currentProcess && arrivedQueue.length > 0) {
-        // Find process with highest priority in the arrived queue
-        let nextProcess = await findHighestPriorityProcess();
+      if (simulationState.executingProcess) {
+        const process = simulationState.executingProcess;
+        const remainingTime = simulationState.processEndTime - currentTime;
         
-        // Process execution animation
-        await new Promise(resolve => setTimeout(resolve, 500 / animationSpeed));
+        setAnimatingTimeJump(true);
+        setTimeJumpTarget(simulationState.processEndTime);
         
-        // Start fade-out animation
-        setFadeOutProcess(nextProcess.name);
-        
-        // Calculate process timing
-        const startTime = currentTime;
-        const endTime = startTime + parseInt(nextProcess.burstTime);
-        
-        // Add to Gantt chart with timing information
-        const processWithTiming = {
-          ...nextProcess,
-          startTime,
-          endTime
+        const continueExecution = async () => {
+          for (let t = currentTime + 1; t <= simulationState.processEndTime; t++) {
+            if (!isSimulating || isPaused) break;
+            setCurrentTime(t);
+            await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
+          }
+          setAnimatingTimeJump(false);
         };
         
-        await new Promise(resolve => setTimeout(resolve, 800 / animationSpeed));
+        await continueExecution();
         
-        // Update states
-        setGanttChart(prev => [...prev, processWithTiming]);
-        setCompletedProcesses(prev => [...prev, nextProcess]);
-        setArrivedQueue(prev => prev.filter(p => p.name !== nextProcess.name));
-        setCurrentProcess(null);
-        setFadeOutProcess(null);
-        
-        // Animate time change to process completion
-        setAnimatingTimeJump(true);
-        setTimeJumpTarget(endTime);
-      } else if (pendingProcesses.length > 0 && arrivedQueue.length === 0) {
-        // If no processes have arrived yet, jump to the arrival time of the earliest process
-        const earliestArrival = Math.min(...pendingProcesses.map(p => parseInt(p.arrivalTime)));
-        
-        // Animate time jump
-        setAnimatingTimeJump(true);
-        setTimeJumpTarget(earliestArrival);
+        if (isSimulating && !isPaused) {
+          setGanttChart(prev => [...prev, {
+            ...process,
+            startTime: simulationState.processStartTime,
+            endTime: simulationState.processEndTime
+          }]);
+          setCompletedProcesses(prev => [...prev, process]);
+          setPendingProcesses(prev => prev.filter(p => p.name !== process.name));
+          setCurrentProcess(null);
+          setFadeOutProcess(null);
+          setSimulationState(prev => ({
+            ...prev,
+            executingProcess: null,
+            processStartTime: null,
+            processEndTime: null,
+            executionProgress: 0
+          }));
+        }
+        return;
       }
-    };
-    
-    // Helper function to visualize finding the highest priority process
-    const findHighestPriorityProcess = async () => {
-      // Initialize with the first arrived process
-      let highestPriorityProcess = arrivedQueue[0];
+      
+      const arrivedProcesses = pendingProcesses.filter(p => parseInt(p.arrivalTime) <= currentTime);
+      
+      if (arrivedProcesses.length === 0) {
+        const nextArrival = Math.min(...pendingProcesses.map(p => parseInt(p.arrivalTime)));
+        setAnimatingTimeJump(true);
+        setTimeJumpTarget(nextArrival);
+        
+        const incrementTime = async () => {
+          for (let t = currentTime + 1; t <= nextArrival; t++) {
+            if (!isSimulating || isPaused) break;
+            setCurrentTime(t);
+            await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
+          }
+          setAnimatingTimeJump(false);
+        };
+        
+        await incrementTime();
+        return;
+      }
+      
+      let highestPriorityProcess = arrivedProcesses[0];
       setCurrentProcess(highestPriorityProcess);
       
-      // Visual delay to show initial selected process
-      await new Promise(resolve => setTimeout(resolve, 500 / animationSpeed));
+      await new Promise(resolve => setTimeout(resolve, getAnimationDelay(500)));
       
-      // Loop through all arrived processes to find the one with highest priority (lowest priority number)
-      for (let i = 1; i < arrivedQueue.length; i++) {
-        const processToCompare = arrivedQueue[i];
+      for (let i = 1; i < arrivedProcesses.length; i++) {
+        if (!isSimulating || isPaused) break;
         
-        // Set the current process being compared
+        const processToCompare = arrivedProcesses[i];
         setComparingProcess(processToCompare);
         
-        // Visual delay to show comparison
-        await new Promise(resolve => setTimeout(resolve, 500 / animationSpeed));
+        await new Promise(resolve => setTimeout(resolve, getAnimationDelay(500)));
         
-        // Lower priority value means higher priority
         if (parseInt(processToCompare.priority) < parseInt(highestPriorityProcess.priority)) {
           highestPriorityProcess = processToCompare;
           setCurrentProcess(highestPriorityProcess);
-          
-          // Visual delay to show the new highest priority
-          await new Promise(resolve => setTimeout(resolve, 300 / animationSpeed));
+          await new Promise(resolve => setTimeout(resolve, getAnimationDelay(300)));
         }
       }
       
-      // Clear comparison highlighting
+      if (!isSimulating || isPaused) return;
+      
       setComparingProcess(null);
       
-      return highestPriorityProcess;
+      const nextProcess = highestPriorityProcess;
+      
+      await new Promise(resolve => setTimeout(resolve, getAnimationDelay(500)));
+      
+      setFadeOutProcess(nextProcess.name);
+      
+      const startTime = Math.max(currentTime, parseInt(highestPriorityProcess.arrivalTime));
+      const endTime = startTime + parseInt(highestPriorityProcess.burstTime);
+      
+      if (startTime > currentTime) {
+        setAnimatingTimeJump(true);
+        setTimeJumpTarget(startTime);
+        
+        const incrementTime = async () => {
+          for (let t = currentTime + 1; t <= startTime; t++) {
+            if (!isSimulating || isPaused) break;
+            setCurrentTime(t);
+            await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
+          }
+          setAnimatingTimeJump(false);
+        };
+        
+        await incrementTime();
+      }
+      
+      if (!isSimulating || isPaused) return;
+      
+      setSimulationState(prev => ({
+        ...prev,
+        executingProcess: nextProcess,
+        processStartTime: startTime,
+        processEndTime: endTime,
+        executionProgress: 0
+      }));
+      
+      setAnimatingTimeJump(true);
+      setTimeJumpTarget(endTime);
+      
+      const executeProcess = async () => {
+        for (let t = startTime + 1; t <= endTime; t++) {
+          if (!isSimulating || isPaused) break;
+          setCurrentTime(t);
+          await new Promise(resolve => setTimeout(resolve, getAnimationDelay(100)));
+        }
+        setAnimatingTimeJump(false);
+      };
+      
+      await executeProcess();
+      
+      if (!isSimulating || isPaused) return;
+      
+      setGanttChart(prev => [...prev, {
+        ...nextProcess,
+        startTime,
+        endTime
+      }]);
+      setCompletedProcesses(prev => [...prev, nextProcess]);
+      setPendingProcesses(prev => prev.filter(p => p.name !== nextProcess.name));
+      setCurrentProcess(null);
+      setFadeOutProcess(null);
+      setSimulationState(prev => ({
+        ...prev,
+        executingProcess: null,
+        processStartTime: null,
+        processEndTime: null,
+        executionProgress: 0
+      }));
     };
     
-    const timer = setTimeout(simulationStep, 500 / animationSpeed);
+    const timer = setTimeout(simulationStep, getAnimationDelay(500));
     return () => clearTimeout(timer);
-  }, [pendingProcesses, arrivedQueue, currentProcess, currentTime, isSimulating, animatingTimeJump, animationSpeed]);
+  }, [pendingProcesses, currentTime, isSimulating, isPaused, animationSpeed, simulationState]);
+  
+  useEffect(() => {
+    if (isSimulating && pendingProcesses.length === 0 && !simulationState.executingProcess) {
+      setIsSimulating(false);
+      setIsPaused(false);
+    }
+  }, [pendingProcesses, isSimulating, simulationState.executingProcess]);
 
   return (
-    <div className="flex flex-col items-center p-6 bg-black rounded-lg border border-white text-white min-w-[80vw] mx-auto">
+    <div className="mt-10 mb-10 flex flex-col items-center p-6 bg-black rounded-lg border border-white text-white min-w-[80vw] mx-auto">
       <h2 className="text-2xl font-bold mb-6">Priority Non-Preemptive Scheduling Visualization</h2>
       <p className="mb-4 text-gray-300">Lower priority value means higher priority</p>
 
       <div className="w-full flex justify-between items-center mb-8">
-        <button
-          onClick={startSimulation}
-          disabled={isSimulating}
-          className={`px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 ${
-            isSimulating 
-              ? "bg-gray-800 text-gray-400 cursor-not-allowed" 
-              : "bg-black text-white hover:bg-gray-900"
-          }`}
-        >
-          {isSimulating ? "Simulation in Progress..." : "Start Priority Scheduling"}
-        </button>
+        <div className="flex space-x-4">
+          <button
+            onClick={startSimulation}
+            disabled={isSimulating && !isPaused}
+            className={`px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 ${
+              isSimulating && !isPaused
+                ? "bg-gray-800 text-gray-400 cursor-not-allowed" 
+                : "bg-black text-white hover:bg-gray-900"
+            }`}
+          >
+            {isSimulating && !isPaused ? "Simulation Running..." : 
+             isPaused ? "Resume Simulation" : "Start Priority Simulation"}
+          </button>
+          
+          <button
+            onClick={stopSimulation}
+            disabled={!isSimulating || isPaused}
+            className={`px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 ${
+              !isSimulating || isPaused
+                ? "bg-gray-800 text-gray-400 cursor-not-allowed" 
+                : "bg-orange-600 text-white hover:bg-orange-700"
+            }`}
+          >
+            Stop Simulation
+          </button>
+          
+          <button
+            onClick={resetSimulation}
+            className="px-6 py-3 rounded-lg border border-white font-bold transition-all duration-300 bg-red-600 text-white hover:bg-red-700"
+          >
+            Reset
+          </button>
+        </div>
         
-        {/* Animation Speed Control */}
         <div className="flex items-center space-x-3">
           <span className="text-sm font-medium">Animation Speed:</span>
           <div className="flex space-x-2">
@@ -226,7 +320,7 @@ const PriorityNonPreemptive = ({ processes }) => {
               className={`px-3 py-1 rounded border transition-all duration-300 ${
                 animationSpeed === 0.5 ? "bg-white text-black" : "bg-black text-white"
               }`}
-              disabled={isSimulating && !animatingTimeJump}
+              disabled={isSimulating && !isPaused}
             >
               0.5x
             </button>
@@ -235,7 +329,7 @@ const PriorityNonPreemptive = ({ processes }) => {
               className={`px-3 py-1 rounded border transition-all duration-300 ${
                 animationSpeed === 1 ? "bg-white text-black" : "bg-black text-white"
               }`}
-              disabled={isSimulating && !animatingTimeJump}
+              disabled={isSimulating && !isPaused}
             >
               1x
             </button>
@@ -244,7 +338,7 @@ const PriorityNonPreemptive = ({ processes }) => {
               className={`px-3 py-1 rounded border transition-all duration-300 ${
                 animationSpeed === 2 ? "bg-white text-black" : "bg-black text-white"
               }`}
-              disabled={isSimulating && !animatingTimeJump}
+              disabled={isSimulating && !isPaused}
             >
               2x
             </button>
@@ -252,7 +346,26 @@ const PriorityNonPreemptive = ({ processes }) => {
         </div>
       </div>
 
-      {/* Current Time Display */}
+      {simulationState.initialized && (
+        <div className="w-full mb-4 text-center">
+          <div className="inline-block px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-600">
+            <span className="font-semibold">Status:</span> 
+            <span className={`ml-2 ${
+              isSimulating && !isPaused ? "text-green-400" : 
+              isPaused ? "text-orange-400" : "text-gray-400"
+            }`}>
+              {isSimulating && !isPaused ? "Running" : 
+               isPaused ? "Paused" : "Stopped"}
+            </span>
+            {simulationState.executingProcess && (
+              <span className="ml-4 text-blue-400">
+                Executing: {simulationState.executingProcess.name}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="w-full mb-6 text-center">
         <div className="inline-block px-4 py-2 bg-black text-white rounded-lg border border-white overflow-hidden relative">
           <span className="font-semibold">Current Time:</span> 
@@ -267,16 +380,24 @@ const PriorityNonPreemptive = ({ processes }) => {
         </div>
       </div>
 
-      {/* Process Queue Visualization */}
       <div className="w-full flex flex-col gap-8 mb-8">
-        {/* Not Yet Arrived Processes */}
         <div className="w-full bg-black p-4 rounded-lg border border-white">
-          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Not Yet Arrived</h3>
+          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">
+            Pending Processes ({pendingProcesses.length})
+          </h3>
           <div className="flex flex-wrap gap-4 justify-center">
             {pendingProcesses.map((p) => (
               <div
                 key={p.name}
-                className="p-4 rounded-lg border border-white text-center w-32 transition-all duration-500"
+                className={`p-4 rounded-lg border text-center transition-all duration-500 w-32 ${
+                  fadeOutProcess === p.name
+                    ? "opacity-0 scale-75 transform translate-y-4"
+                    : currentProcess && currentProcess.name === p.name
+                      ? "scale-110 border-yellow-500 border-2 bg-yellow-900 bg-opacity-30"
+                      : comparingProcess && comparingProcess.name === p.name
+                        ? "scale-105 border-red-500 border-2 bg-red-900 bg-opacity-30"
+                        : "border-white"
+                }`}
                 style={{
                   borderLeft: `5px solid ${processColors[p.name] || "#3498db"}`
                 }}
@@ -290,58 +411,20 @@ const PriorityNonPreemptive = ({ processes }) => {
               </div>
             ))}
             {pendingProcesses.length === 0 && (
-              <p className="text-gray-400 italic">All processes have arrived</p>
+              <p className="text-gray-400 italic">No pending processes</p>
             )}
           </div>
         </div>
 
-        {/* Ready Queue (Arrived Processes) */}
         <div className="w-full bg-black p-4 rounded-lg border border-white">
-          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Ready Queue (Sorting by Priority)</h3>
-          <div className="flex flex-wrap gap-4 justify-center">
-            {arrivedQueue.map((p) => (
-              <div
-                key={p.name}
-                className={`p-4 rounded-lg border text-center transition-all duration-500 w-32 ${
-                  fadeOutProcess === p.name
-                    ? "opacity-0 scale-75 transform translate-y-4"
-                    : currentProcess && currentProcess.name === p.name
-                      ? "scale-110 border-yellow-500 border-2 bg-yellow-900 bg-opacity-30"
-                      : comparingProcess && comparingProcess.name === p.name
-                        ? "scale-105 border-red-500 border-2 bg-red-900 bg-opacity-30"
-                        : highlightNewArrivals.includes(p.name)
-                          ? "scale-110 border-green-500 border-2 animate-pulse"
-                          : "border-white"
-                }`}
-                style={{
-                  borderLeft: `5px solid ${processColors[p.name] || "#3498db"}`,
-                  transition: highlightNewArrivals.includes(p.name) 
-                    ? "all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)" 
-                    : "all 0.3s ease-in-out"
-                }}
-              >
-                <p className="font-bold text-lg">{p.name}</p>
-                <div className="grid grid-cols-2 gap-1 mt-2 text-sm">
-                  <p className="bg-gray-900 rounded p-1">Arrival: {p.arrivalTime}</p>
-                  <p className="bg-gray-900 rounded p-1">Burst: {p.burstTime}</p>
-                  <p className="bg-gray-900 rounded p-1 col-span-2">Priority: {p.priority}</p>
-                </div>
-              </div>
-            ))}
-            {arrivedQueue.length === 0 && (
-              <p className="text-gray-400 italic">No processes in ready queue</p>
-            )}
-          </div>
-        </div>
-
-        {/* Completed Processes */}
-        <div className="w-full bg-black p-4 rounded-lg border border-white">
-          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Completed Processes</h3>
+          <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">
+            Completed Processes ({completedProcesses.length})
+          </h3>
           <div className="flex flex-wrap gap-4 justify-center">
             {completedProcesses.map((p) => (
               <div
                 key={p.name}
-                className="p-4 rounded-lg border border-white text-center w-32 animate-fadeIn transition-all duration-500"
+                className="p-4 rounded-lg border border-white text-center w-32"
                 style={{ 
                   borderLeftColor: processColors[p.name] || "#3498db",
                   borderLeftWidth: "5px"
@@ -358,37 +441,26 @@ const PriorityNonPreemptive = ({ processes }) => {
         </div>
       </div>
 
-      {/* Gantt Chart */}
       <div className="w-full bg-black p-4 rounded-lg border border-white">
         <h3 className="text-lg font-semibold mb-4 border-b border-white pb-2">Gantt Chart</h3>
         
         {ganttChart.length > 0 ? (
           <div className="relative">
-            {/* Time Axis */}
             <div className="absolute left-0 right-0 bottom-0 h-8 border-t border-white"></div>
             
-            {/* Process Blocks */}
             <div className="flex h-20 mb-12 relative">
               {ganttChart.map((p, index) => {
-                // Calculate previous process end time
                 const prevEndTime = index > 0 ? ganttChart[index - 1].endTime : 0;
-                
-                // Calculate idle time gap if any
                 const idleTime = p.startTime - prevEndTime;
-                
-                // Calculate total timeline length for scaling
                 const totalTime = ganttChart[ganttChart.length - 1].endTime;
-                
-                // Calculate widths as percentages of total time
                 const idleWidth = (idleTime / totalTime) * 100;
                 const processWidth = ((p.endTime - p.startTime) / totalTime) * 100;
                 
                 return (
                   <div key={p.name} className="flex h-full group">
-                    {/* Idle time block */}
                     {idleTime > 0 && (
                       <div 
-                        className="h-full flex items-center justify-center bg-gray-900 border-r border-white bg-opacity-50 transition-all duration-300"
+                        className="h-full flex items-center justify-center bg-gray-900 border-r border-white bg-opacity-50"
                         style={{ 
                           width: `${idleWidth}%`,
                           minWidth: idleTime > 0 ? '30px' : '0'
@@ -398,16 +470,13 @@ const PriorityNonPreemptive = ({ processes }) => {
                       </div>
                     )}
                     
-                    {/* Process block with gap */}
                     <div className="relative h-full px-1">
-                      {/* Process box */}
                       <div
-                        className="h-4/5 mt-2 flex items-center justify-center text-white font-bold rounded-md shadow-md transition-all duration-300 hover:h-full hover:mt-0 hover:scale-105 animate-fadeIn"
+                        className="h-4/5 mt-2 flex items-center justify-center text-white font-bold rounded-md shadow-md transition-all duration-300 hover:h-full hover:mt-0 hover:scale-105"
                         style={{
                           width: `${processWidth}%`,
                           backgroundColor: processColors[p.name] || "#3498db",
-                          minWidth: '50px',
-                          animationDelay: `${index * 0.2}s`
+                          minWidth: '50px'
                         }}
                       >
                         <div className="flex flex-col items-center">
@@ -416,10 +485,8 @@ const PriorityNonPreemptive = ({ processes }) => {
                         </div>
                       </div>
                       
-                      {/* Vertical timeline connector */}
                       <div className="absolute left-1/2 -bottom-8 w-px h-8 bg-gray-600 transform -translate-x-1/2"></div>
                       
-                      {/* Time labels with improved positioning */}
                       <div className="absolute left-0 -bottom-8 text-xs font-medium bg-gray-800 px-2 py-1 rounded-md transform -translate-x-1/2">
                         {p.startTime}
                       </div>
@@ -433,8 +500,7 @@ const PriorityNonPreemptive = ({ processes }) => {
                   </div>
                 );
               })}
-
-              {/* Timeline base */}
+              
               <div className="absolute left-0 right-0 -bottom-8 h-px bg-gray-500"></div>
             </div>
           </div>
@@ -443,9 +509,8 @@ const PriorityNonPreemptive = ({ processes }) => {
         )}
       </div>
 
-      {/* Metrics Table (when simulation completes) */}
-      {completedProcesses.length > 0 && completedProcesses.length === processes.length && (
-        <div className="w-full bg-black p-4 rounded-lg border border-white mt-8 animate-fadeIn">
+      {completedProcesses.length > 0 && ganttChart.length > 0 && (
+        <div className="w-full bg-black p-4 rounded-lg border border-white mt-8">
           <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">Performance Metrics</h3>
           
           <div className="overflow-x-auto">
@@ -463,16 +528,12 @@ const PriorityNonPreemptive = ({ processes }) => {
                 </tr>
               </thead>
               <tbody>
-                {ganttChart.map((p, index) => {
+                {ganttChart.map(p => {
                   const turnaroundTime = p.endTime - parseInt(p.arrivalTime);
                   const waitingTime = p.startTime - parseInt(p.arrivalTime);
                   
                   return (
-                    <tr 
-                      key={p.name} 
-                      className="transition-all duration-300 animate-fadeIn"
-                      style={{ animationDelay: `${index * 0.1}s` }}
-                    >
+                    <tr key={p.name}>
                       <td className="py-2 px-4 border border-white font-medium" style={{color: processColors[p.name] || "#3498db"}}>{p.name}</td>
                       <td className="py-2 px-4 border border-white text-center">{p.arrivalTime}</td>
                       <td className="py-2 px-4 border border-white text-center">{p.burstTime}</td>
@@ -485,9 +546,8 @@ const PriorityNonPreemptive = ({ processes }) => {
                   );
                 })}
                 
-                {/* Average metrics row */}
                 {ganttChart.length > 0 && (
-                  <tr className="bg-gray-900 font-semibold animate-fadeIn" style={{ animationDelay: '0.5s' }}>
+                  <tr className="bg-gray-900 font-semibold">
                     <td className="py-2 px-4 border border-white text-right" colSpan="6">Average</td>
                     <td className="py-2 px-4 border border-white text-center">
                       {(ganttChart.reduce((sum, p) => sum + (p.endTime - parseInt(p.arrivalTime)), 0) / ganttChart.length).toFixed(2)}
@@ -503,7 +563,6 @@ const PriorityNonPreemptive = ({ processes }) => {
         </div>
       )}
 
-      {/* Priority Explanation */}
       <div className="w-full bg-black p-4 rounded-lg border border-white mt-8">
         <h3 className="text-lg font-semibold mb-3 border-b border-white pb-2">About Priority Non-Preemptive Scheduling</h3>
         <div className="prose prose-invert max-w-none">
@@ -517,28 +576,6 @@ const PriorityNonPreemptive = ({ processes }) => {
           <p className="mt-3">This algorithm can lead to priority inversion and starvation of lower priority processes. To mitigate this, many systems implement aging mechanisms that gradually increase the priority of waiting processes.</p>
         </div>
       </div>
-
-      {/* Add CSS animations to <style> */}
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-out forwards;
-        }
-        
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.6; }
-          100% { opacity: 1; }
-        }
-        
-        .animate-pulse {
-          animation: pulse 1s infinite;
-        }
-      `}</style>
     </div>
   );
 };
